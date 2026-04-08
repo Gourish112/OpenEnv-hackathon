@@ -28,10 +28,10 @@ import traceback
 from typing import Any, Dict, List, Optional
 import requests
 from openai import OpenAI
-
-
+from dotenv import load_dotenv
+load_dotenv() 
 API_BASE_URL: str = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
-MODEL_NAME:   str = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+MODEL_NAME:   str = os.environ.get("MODEL_NAME","Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 TASK_ID:      str = os.environ.get("TASK_ID", "T1_hr_type_repair")
 OPENAI_KEY:   str = os.environ.get("OPENAI_API_KEY")
