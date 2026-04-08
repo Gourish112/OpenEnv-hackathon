@@ -6,3 +6,5 @@ requests==2.32.3
 openai==1.58.1
 python-multipart==0.0.20
 PyYAML==6.0.2
+openenv-core
+tomllib

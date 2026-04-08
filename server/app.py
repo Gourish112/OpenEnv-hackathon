@@ -82,20 +82,28 @@ async def list_tasks():
     }
 
 
+from typing import Optional
+from fastapi import HTTPException
+
 @app.post("/reset")
-async def reset(req: ResetRequest):
+async def reset(req: Optional[ResetRequest] = None):
     """
     Reset the environment.
     Returns the initial observation conforming to OpenEnv spec.
     """
-    task_id = req.task_id or "T1_hr_type_repair"
+
+    task_id = req.task_id if req and req.task_id else "T1_hr_type_repair"
+
     if task_id not in TASK_REGISTRY:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown task_id '{task_id}'. Available: {list(TASK_REGISTRY)}",
         )
+
     log.info("RESET  task_id=%s", task_id)
+
     obs = await _env.reset(task_id=task_id)
+
     return obs.model_dump()
 
 
