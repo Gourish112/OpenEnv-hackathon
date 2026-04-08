@@ -35,11 +35,10 @@ dependencies = [
 ]
 
 [project.scripts]
-datacleaning-server = "server.app:main"
+server = "server.app:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["env*", "server*"]
+[tool.setuptools]
+packages = ["env", "server"]
 
 [tool.setuptools.package-data]
 "*" = ["openenv.yaml", "*.md"]
