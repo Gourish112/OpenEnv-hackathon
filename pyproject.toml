@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-cleaning-openenv"
+version = "1.0.0"
+description = "Production-grade OpenEnv environment for data cleaning and anomaly remediation"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "OpenEnv DataCleaning Team" }
+]
+license = { text = "MIT" }
+keywords = ["openenv", "data-cleaning", "rl-environment", "llm-agent"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+    "pydantic==2.10.3",
+    "httpx==0.28.1",
+    "requests==2.32.3",
+    "openai==1.58.1",
+    "python-multipart==0.0.20",
+    "PyYAML==6.0.2",
+    "openenv-core",
+]
+
+[project.scripts]
+datacleaning-server = "server.app:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["env*", "server*"]
+
+[tool.setuptools.package-data]
+"*" = ["openenv.yaml", "*.md"]
