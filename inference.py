@@ -199,12 +199,16 @@ def run_episode(task_id: str) -> dict:
         try:
             raw_response = call_llm(conversation)
         except Exception as e:
+            step_reward = 0.0
+            rewards.append(step_reward)
+
             print(
                 f"[STEP] step={step_num} action=null reward=0.00 done=false error=LLM_CALL_FAILED",
                 flush=True,
             )
-            break
 
+            done = False  # allow next step to proceed
+            continue
         if VERBOSE:
             print(f"  [LLM]  {raw_response[:200]}", file=sys.stderr)
 
