@@ -32,7 +32,7 @@ from openai import OpenAI
 
 API_BASE_URL: str = os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
 MODEL_NAME:   str = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 TASK_ID:      str = os.environ.get("TASK_ID", "T1_hr_type_repair")
 OPENAI_KEY:   str = os.environ.get("OPENAI_API_KEY")
 VERBOSE:      bool = os.environ.get("VERBOSE", "0").lower() in ("1", "true", "yes")
@@ -46,7 +46,7 @@ SUCCESS_SCORE_THRESHOLD = 0.1
 api_key = os.getenv("HF_TOKEN")
 
 client = OpenAI(
-    api_key=api_key,
+    api_key=HF_TOKEN,
     base_url="https://router.huggingface.co/v1",
 )
 
@@ -168,7 +168,7 @@ def parse_action(raw: str) -> Optional[Dict[str, Any]]:
                 pass
     return None
 
-
+rewards: List[float] = []
 def run_episode(task_id: str) -> dict:
     """Run a single episode and return the result dict."""
 
@@ -176,8 +176,7 @@ def run_episode(task_id: str) -> dict:
     obs_data = _post("/reset", {"task_id": task_id})
     max_steps = MAX_STEPS_OVERRIDE or obs_data.get("max_steps", 30)
 
-    print(f"[START] task_id={task_id}  max_steps={max_steps}", flush=True)
-
+    print(f"[START] task={task_id} env=data_cleaning model={MODEL_NAME}", flush=True)
     conversation: List[Dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
@@ -200,7 +199,10 @@ def run_episode(task_id: str) -> dict:
         try:
             raw_response = call_llm(conversation)
         except Exception as e:
-            print(f"[STEP]  step={step_num}  error=LLM_CALL_FAILED:{e}", flush=True)
+            print(
+                f"[STEP] step={step_num} action=null reward=0.00 done=false error=LLM_CALL_FAILED",
+                flush=True,
+            )
             break
 
         if VERBOSE:
@@ -218,7 +220,10 @@ def run_episode(task_id: str) -> dict:
         try:
             step_result = _post("/step", {"action": action_dict})
         except Exception as e:
-            print(f"[STEP]  step={step_num}  error=SERVER:{e}", flush=True)
+            print(
+                f"[STEP] step={step_num} action=null reward=0.00 done=false error=LLM_CALL_FAILED",
+                flush=True,
+            )
             break
 
         obs_data     = step_result.get("observation", obs_data)
@@ -232,12 +237,14 @@ def run_episode(task_id: str) -> dict:
         step_count = step_num
 
         action_json = json.dumps(action_dict)
+        rewards.append(step_reward)
+
         print(
-            f"[STEP]  step={step_num}"
-            f"  action={action_json}"
-            f"  reward={step_reward:.4f}"
-            f"  done={done}"
-            f"  feedback={repr(obs_data.get('last_action_feedback', '')[:80])}",
+            f"[STEP] step={step_num} "
+            f"action={action_json} "
+            f"reward={step_reward:.2f} "
+            f"done={str(done).lower()} "
+            f"error=null",
             flush=True,
         )
 
@@ -253,10 +260,14 @@ def run_episode(task_id: str) -> dict:
             done      = True
             final_info = step_result.get("info", final_info)
             step_count += 1
+            rewards.append(step_result.get('reward', {}).get('total', 0.0))
+
             print(
-                f"[STEP]  step={step_count}  action={{\"action_type\":\"validate\"}}"
-                f"  reward={step_result.get('reward', {}).get('total', 0.0):.4f}"
-                f"  done=True  feedback=forced_validate",
+                f"[STEP] step={step_count} "
+                f"action={{\"action_type\":\"validate\"}} "
+                f"reward={step_result.get('reward', {}).get('total', 0.0):.2f} "
+                f"done=true "
+                f"error=null",
                 flush=True,
             )
         except Exception:
@@ -269,12 +280,16 @@ def run_episode(task_id: str) -> dict:
     resolved       = episode_result.get("issues_resolved", 0)
     total_issues   = episode_result.get("issues_total", "?")
 
+    score = min(max(score, 0.0), 1.0)
+    success = score >= SUCCESS_SCORE_THRESHOLD
+
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+
     print(
-        f"[END]   score={score:.4f}"
-        f"  passed={passed}"
-        f"  steps={step_count}"
-        f"  resolved={resolved}/{total_issues}"
-        f"  cumulative_reward={cumulative_reward:.4f}",
+        f"[END] success={str(success).lower()} "
+        f"steps={step_count} "
+        f"score={score:.2f} "
+        f"rewards={rewards_str}",
         flush=True,
     )
 
