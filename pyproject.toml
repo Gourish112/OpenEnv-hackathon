@@ -21,6 +21,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
 dependencies = [
     "fastapi==0.115.5",
     "uvicorn[standard]==0.32.1",
@@ -30,11 +31,11 @@ dependencies = [
     "openai==1.58.1",
     "python-multipart==0.0.20",
     "PyYAML==6.0.2",
-    "openenv-core",
+    "openenv-core"
 ]
 
 [project.scripts]
-datacleaning-server = "server.app:app"
+datacleaning-server = "server.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
