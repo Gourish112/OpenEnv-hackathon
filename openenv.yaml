@@ -1,0 +1,262 @@
+name: data-cleaning-anomaly-remediation
+version: "1.0.0"
+description: |
+  A production-grade OpenEnv environment that simulates a real-world data-quality
+  remediation workflow. An LLM agent receives a dirty tabular dataset and must
+  detect and repair type errors, missing values, constraint violations, duplicate
+  rows, statistical outliers, format inconsistencies, and cross-row conflicts.
+  The agent is evaluated on correctness, efficiency, and reasoning quality.
+
+author: OpenEnv DataCleaning Team
+license: MIT
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SERVER
+# ─────────────────────────────────────────────────────────────────────────────
+server:
+  host: "0.0.0.0"
+  port: 8000
+  endpoints:
+    reset: POST /reset
+    step:  POST /step
+    state: GET  /state
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OBSERVATION SCHEMA
+# ─────────────────────────────────────────────────────────────────────────────
+observation:
+  type: object
+  description: "Full observable state returned after each reset/step."
+  properties:
+    task_id:
+      type: string
+      description: "Identifier of the current task episode."
+    task_description:
+      type: string
+      description: "Natural-language description of the task objective."
+    step:
+      type: integer
+      description: "Current step number (0-indexed, increments after each action)."
+    max_steps:
+      type: integer
+      description: "Maximum steps allowed before forced episode termination."
+    dataset:
+      type: object
+      description: "Current snapshot of the dataset."
+      properties:
+        schema:
+          type: object
+          description: "Expected schema: column names, dtypes, required fields, constraints."
+        rows:
+          type: array
+          description: "All rows in the current dataset. Each row has index, values, flags."
+        total_rows:
+          type: integer
+        visible_rows:
+          type: integer
+        issues_found:
+          type: integer
+          description: "Cumulative count of issues the agent has interacted with."
+    issues_remaining:
+      type: integer
+      description: "Estimated remaining issues (ground-truth total minus resolved)."
+    issues_resolved:
+      type: integer
+    false_repairs:
+      type: integer
+    hints:
+      type: array
+      description: "Structured issue hints (full in easy, partial in medium, misleading in hard)."
+      items:
+        type: object
+        properties:
+          row_index: {type: integer}
+          column:    {type: string}
+          issue_type:{type: string}
+          current_val: {}
+          hint:      {type: string}
+    visible_constraints:
+      type: array
+      description: "Business/schema constraints the agent must respect."
+      items: {type: string}
+    episode_done:
+      type: boolean
+    last_action_feedback:
+      type: string
+      description: "Human-readable feedback from the previous action."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACTION SCHEMA
+# ─────────────────────────────────────────────────────────────────────────────
+action:
+  type: object
+  description: "Action submitted by the agent each step."
+  required:
+    - action_type
+  properties:
+    action_type:
+      type: string
+      enum:
+        - fix_type          # Cast a cell to the correct dtype
+        - fix_value         # Replace an erroneous cell value
+        - fill_missing      # Impute a missing/null cell
+        - remove_duplicate  # Drop a duplicate row
+        - remove_outlier    # Drop a statistical outlier row
+        - rename_column     # Fix a misspelled column header
+        - drop_column       # Remove an irrelevant/corrupt column
+        - drop_row          # Drop a structurally broken / conflict row
+        - validate          # Declare dataset clean — ends the episode
+        - skip              # No-op (penalised for inefficiency)
+    row_index:
+      type: integer
+      nullable: true
+      description: "Target row (0-based). Required for cell/row-level actions."
+    column:
+      type: string
+      nullable: true
+      description: "Target column name. Required for cell-level and column actions."
+    new_value:
+      nullable: true
+      description: "Replacement value for fix_value / fill_missing."
+    target_dtype:
+      type: string
+      nullable: true
+      enum: [int, float, string, boolean, date]
+      description: "Target data type for fix_type action."
+    new_name:
+      type: string
+      nullable: true
+      description: "New column name for rename_column action."
+    reasoning:
+      type: string
+      nullable: true
+      description: "Agent's reasoning for this action. Rewarded in hard tasks."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REWARD DEFINITION
+# ─────────────────────────────────────────────────────────────────────────────
+reward:
+  type: dense
+  description: |
+    Per-step reward with multiple components. The agent receives a scalar float
+    at every step. Episode score ∈ [0.0, 1.0] is computed by the grader on VALIDATE.
+  range: [-1.0, 1.0]
+  components:
+    issue_resolved:
+      description: "Positive reward for correctly fixing a genuine issue."
+      values:
+        easy:   +0.20
+        medium: +0.25
+        hard:   +0.30
+    false_repair:
+      description: "Penalty for modifying a cell that had no issue, or applying wrong fix."
+      value: -0.20
+    invalid_action:
+      description: "Penalty for structurally malformed actions (missing fields, bad refs)."
+      value: -0.15
+    efficiency_penalty:
+      description: "Penalty for SKIP actions and redundant actions on already-clean cells."
+      values:
+        skip: -0.05
+        unnecessary: -0.03
+    loop_penalty:
+      description: "Extra penalty for revisiting the same (row, column) cell."
+      value: -0.10
+    reasoning_bonus:
+      description: "Bonus (hard task only) for providing a non-empty 'reasoning' field."
+      value: +0.05
+    early_completion:
+      description: "Bonus on VALIDATE proportional to steps saved vs max_steps."
+      formula: "0.30 * (1 - steps_used / max_steps)"
+  final_score:
+    description: "Weighted combination of correctness, completion, efficiency, integrity."
+    weights:
+      correctness:  0.60
+      completion:   0.20
+      efficiency:   0.10
+      integrity:    0.10
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TASK DEFINITIONS
+# ─────────────────────────────────────────────────────────────────────────────
+tasks:
+  - task_id: T1_hr_type_repair
+    name: "HR Dataset — Type Repair"
+    difficulty: easy
+    max_steps: 20
+    pass_threshold: 0.75
+    total_issues: 6
+    domain: human-resources
+    description: |
+      A 10-row HR employee dataset with 3 type errors (string instead of int/float/bool),
+      2 missing required fields, and 1 value that violates a business constraint (age > 75).
+      All hints are surfaced. The agent must repair every issue and call VALIDATE.
+    issue_types:
+      - wrong_type
+      - missing_value
+      - constraint_violation
+    hints: full
+    grader: correctness + completion + efficiency + integrity (weighted)
+
+  - task_id: T2_sales_multi_issue
+    name: "Sales Orders — Multi-Issue"
+    difficulty: medium
+    max_steps: 35
+    pass_threshold: 0.70
+    total_issues: 7
+    domain: sales-analytics
+    description: |
+      A 15-row sales order dataset (with 2 extra dirty rows) containing:
+      1 misspelled column header ("rgion" vs "region"),
+      2 duplicate rows, 2 statistical outliers, 1 date format error, 1 price=0 violation.
+      Only 3 of 7 issues are hinted. Agent must discover the rest independently.
+    issue_types:
+      - column_rename
+      - duplicate_rows
+      - outlier_values
+      - format_error
+      - constraint_violation
+    hints: partial
+    grader: correctness + completion + efficiency + integrity (weighted)
+
+  - task_id: T3_financial_hard
+    name: "Financial Transactions — Hard / Hidden Constraints"
+    difficulty: hard
+    max_steps: 50
+    pass_threshold: 0.65
+    total_issues: 11
+    domain: financial-compliance
+    description: |
+      A 20-row financial transaction dataset with:
+      3 enum violations (tx_type, currency, status),
+      1 account_id pattern violation, 1 negative amount, 1 missing required field,
+      1 wrong type (amount stored as string), 1 duplicate tx, 1 statistical outlier,
+      and a HIDDEN cross-row conflict (two rows share the same tx_id with different
+      currencies — the agent must detect and resolve the conflict).
+      Some hints are MISLEADING. The agent is rewarded for providing 'reasoning' in each action.
+    issue_types:
+      - enum_violation
+      - pattern_violation
+      - negative_value
+      - missing_value
+      - wrong_type
+      - duplicate_rows
+      - outlier_values
+      - cross_row_conflict
+    hints: partial_misleading
+    hidden_constraints:
+      - tx_id must be globally unique (cross-row conflict resolution required)
+    reasoning_rewarded: true
+    grader: correctness + completion + efficiency + integrity (weighted) + reasoning_bonus
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VALIDATION
+# ─────────────────────────────────────────────────────────────────────────────
+validation:
+  openenv_validate:
+    - GET /health → 200
+    - POST /reset → 200 with observation
+    - POST /step  → 200 with {observation, reward, done, info}
+    - GET /state  → 200 with environment state
+  determinism: true
+  random_seed: null   # fully deterministic without seeds
