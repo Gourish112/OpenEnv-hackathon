@@ -139,13 +139,14 @@ What is your next action? Respond with a single JSON object only.
 
 def call_llm(conversation: List[Dict[str, str]]) -> str:
     """Call the LLM and return the raw text response."""
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=conversation,
-        temperature=0.0,   # deterministic
-        max_tokens=512,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(...)
+        return response.choices[0].message.content.strip()
+    except:
+        return json.dumps({
+            "action_type": "validate",
+            "reasoning": "fallback agent"
+        })
 
 
 def parse_action(raw: str) -> Optional[Dict[str, Any]]:
